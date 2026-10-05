@@ -132,19 +132,36 @@ exit "$status"
 STUB
 chmod +x "$STUB_BIN/claude"
 
+
+# omp stub. auto-prove.sh invokes
+#   omp -p --auto-approve --no-session --no-skills --no-rules --no-extensions "<prompt>"
+# so the prompt arrives as a positional argument, not as the value of -p.
+# Validate the omp CLI contract, then delegate to the claude stub with the
+# prompt re-exposed as the -p value so the shared af-extraction logic runs.
+cat > "$STUB_BIN/omp" <<'STUB'
+#!/usr/bin/env bash
+set -u
+for flag in -p --auto-approve --no-session --no-skills --no-rules --no-extensions; do
+    [[ " $* " == *" $flag "* ]] || { echo "omp stub: missing $flag" >&2; exit 64; }
+done
+
+exec "$(dirname "$0")/claude" -p "${@: -1}"
+STUB
+chmod +x "$STUB_BIN/omp"
 run_auto_prove() {
     local proof_dir="$1" output="$2" max_iter="$3" max_agents="$4"
     local af_path="${5:-$STUB_BIN/af}"
+    local backend="${6:-claude}"
     set +e
     (
         cd "$proof_dir" || exit 4
         AF_CMD="$af_path" \
-        AF_AGENT_BACKEND=claude \
+        AF_AGENT_BACKEND="$backend" \
         AF_STUB_AF="$af_path" \
         AF_STUB_LOG="$STUB_LOG" \
         PATH="$STUB_BIN:$PATH" \
             bash "$SCRIPT_DIR/auto-prove.sh" \
-            --agent-backend claude \
+            --agent-backend "$backend" \
             --proof-dir "$proof_dir" \
             --max-iterations "$max_iter" \
             --max-agents "$max_agents" \
@@ -344,5 +361,38 @@ FAKE_STATUS="$COMPLETE_DIR/status-valid.json" FAKE_EXPORT="$COMPLETE_DIR/export-
     expect_complete 0 "positive control after negative cases"
 
 echo "completion negative tests: ok"
+
+# Scenario (omp): rerun the Scenario 1 verifier flow through the omp stub.
+# The omp stub gets the prompt as positional args, so this proves the omp
+# dispatch arm delivers the prompt correctly.
+STUB_LOG_LINE_BEFORE=$(wc -l < "$STUB_LOG")
+OMP_PROOF_DIR="$TMP_DIR/omp-proof"
+mkdir -p "$OMP_PROOF_DIR"
+"$AF_BIN" init -c "Omp stub conjecture" -a stub-author -d "$OMP_PROOF_DIR" >/dev/null
+OMP_OUTPUT="$TMP_DIR/auto-prove-omp.log"
+run_auto_prove "$OMP_PROOF_DIR" "$OMP_OUTPUT" 5 4 "$STUB_BIN/af" omp
+cat "$OMP_OUTPUT"
+
+if ! grep -q "PROOF COMPLETE" "$OMP_OUTPUT"; then
+    echo "test-auto-prove.sh: omp scenario did not declare PROOF COMPLETE" >&2
+    exit 1
+fi
+
+if ! tail -n +"$((STUB_LOG_LINE_BEFORE + 1))" "$STUB_LOG" | grep -q "STUB-RUN: .* claim 1 --owner .* --role verifier"; then
+    echo "test-auto-prove.sh: omp scenario did not log the claim command in stub log" >&2
+    tail -n +"$((STUB_LOG_LINE_BEFORE + 1))" "$STUB_LOG" >&2
+    exit 1
+fi
+if ! tail -n +"$((STUB_LOG_LINE_BEFORE + 1))" "$STUB_LOG" | grep -q "STUB-RUN: .* accept 1 --agent "; then
+    echo "test-auto-prove.sh: omp scenario did not log the accept command in stub log" >&2
+    exit 1
+fi
+if ! tail -n +"$((STUB_LOG_LINE_BEFORE + 1))" "$STUB_LOG" | grep -q "STUB-RUN: .* release 1 --owner "; then
+    echo "test-auto-prove.sh: omp scenario did not log the release command in stub log" >&2
+    exit 1
+fi
+
+echo "omp backend scenario: ok"
+
 
 exit 0

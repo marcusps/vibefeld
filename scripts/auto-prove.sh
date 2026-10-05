@@ -11,9 +11,11 @@
 #   --delay-seconds N     Delay between agent calls (default: 5)
 #   --burst-limit N       Max consecutive calls before longer pause (default: 3)
 #   --burst-pause N       Seconds to pause after burst limit (default: 30)
-#   --agent-backend NAME  Agent backend to use: claude or codex (default: claude)
+#   --agent-backend NAME  Agent backend to use: claude, codex, omp, or copilot (default: claude)
 #   --codex               Shortcut for --agent-backend codex
 #   --claude              Shortcut for --agent-backend claude
+#   --omp                 Shortcut for --agent-backend omp
+#   --copilot             Shortcut for --agent-backend copilot
 #   --dry-run             Show what would be done without calling agents
 #   --proof-dir DIR       Directory containing the proof (default: current)
 #   --verbose             Show detailed output
@@ -203,6 +205,14 @@ while [[ $# -gt 0 ]]; do
             AGENT_BACKEND="codex"
             shift
             ;;
+        --omp)
+            AGENT_BACKEND="omp"
+            shift
+            ;;
+        --copilot)
+            AGENT_BACKEND="copilot"
+            shift
+            ;;
         --parallel)
             PARALLEL="$2"
             shift 2
@@ -236,7 +246,7 @@ done
 AGENT_BACKEND="${AGENT_BACKEND,,}"
 
 case "$AGENT_BACKEND" in
-    claude|codex)
+    claude|codex|omp|copilot)
         ;;
     *)
         log_error "Unknown agent backend: $AGENT_BACKEND"
@@ -281,6 +291,18 @@ case "$AGENT_BACKEND" in
     codex)
         if ! command -v codex &> /dev/null; then
             log_error "codex command not found. Install Codex CLI or rerun without --codex."
+            exit 4
+        fi
+        ;;
+    omp)
+        if ! command -v omp &> /dev/null; then
+            log_error "omp command not found. Install omp or rerun with --claude."
+            exit 4
+        fi
+        ;;
+    copilot)
+        if ! command -v copilot &> /dev/null; then
+            log_error "copilot command not found. Install GitHub Copilot CLI or rerun with --claude."
             exit 4
         fi
         ;;
@@ -684,6 +706,16 @@ run_codex_agent() {
         - < "$prompt_file"
 }
 
+run_omp_agent() {
+    local prompt_file="$1"
+    run_with_timeout "${AGENT_TIMEOUT:-300}" omp -p --auto-approve --no-session --no-skills --no-rules --no-extensions "$(cat "$prompt_file")"
+}
+
+run_copilot_agent() {
+    local prompt_file="$1"
+    run_with_timeout "${AGENT_TIMEOUT:-300}" copilot -p "$(cat "$prompt_file")" -s --allow-all --no-ask-user
+}
+
 call_agent() {
     local prompt="$1"
     local job_type="$2"
@@ -719,6 +751,14 @@ call_agent() {
             if [[ -z "$output" ]]; then
                 output=$(cat "$log_file")
             fi
+            ;;
+        omp)
+            run_omp_agent "$prompt_file" > "$log_file" 2>&1 || exit_code=$?
+            output=$(cat "$log_file")
+            ;;
+        copilot)
+            run_copilot_agent "$prompt_file" > "$log_file" 2>&1 || exit_code=$?
+            output=$(cat "$log_file")
             ;;
     esac
 
