@@ -62,4 +62,5 @@
 # - github.repo
 
 sync:
-    remote: "git+ssh://git@github.com/tobiasosborne/vibefeld.git"
+    # remote: "git+ssh://[EMAIL]:marcusps/vibefeld.git"
+    branch: beads-sync
