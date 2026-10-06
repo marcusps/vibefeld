@@ -12,3 +12,10 @@ coverage*.out
 
 # TLC metadata when running TLC by hand (scripts/tla-check.sh uses a temp dir)
 specs/tla/states/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
