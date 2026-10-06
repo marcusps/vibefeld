@@ -64,3 +64,4 @@
 sync:
     # remote: "git+ssh://[EMAIL]:marcusps/vibefeld.git"
     branch: beads-sync
+    remote: "git@github.com:marcusps/vibefeld.git"
